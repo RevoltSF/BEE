@@ -1,8 +1,9 @@
 
-const { ApplicationCommandOptionType, EmbedBuilder, ButtonStyle, ButtonBuilder, ButtonInteraction, ButtonComponent, ActionRowBuilder, ComponentType } = require("discord.js");
+const { ApplicationCommandOptionType, EmbedBuilder, ButtonStyle, ButtonBuilder, ButtonInteraction, ButtonComponent, ActionRowBuilder, ComponentType, ChannelType, ThreadAutoArchiveDuration } = require("discord.js");
 const { config } = require("dotenv");
 const color = require("@root/config").EMBED_COLORS.BOT_EMBED
 const { getUser } = require("@schemas/User");
+const { channel } = require("diagnostics_channel");
 
 const SHIFTS = require("../../../config").SHIFTS;
 function extractNumber(str) {
@@ -42,6 +43,7 @@ function getJobDetails(niceJobName) {
     "Green Clean": "janitor",
     "Lovely Lumber": "woodCutter"
   };
+  
 
   const jobKey = Object.keys(jobMap).find(key => niceJobName.includes(key));
   
@@ -147,7 +149,7 @@ const jobOptions = [
   { name: `${SHIFTS.woodCutter.Emoji} Lovely Lumber`, value: "woodCutter" },
 ];
 const timeOptions = [
-  { name: "5 minutes", value: "5" },
+  { name: "1 minute", value: "1" },
   { name: "10 minutes", value: "10" },
   { name: "15 minutes", value: "15" },
   { name: "20 minutes", value: "20" },
@@ -156,7 +158,6 @@ const timeOptions = [
   { name: "35 minutes", value: "35" },
   { name: "40 minutes", value: "40" },
   { name: "45 minutes", value: "45" },
- 
 ];
 
 
@@ -198,7 +199,7 @@ module.exports = {
               description: "how many reactions are needed to start?",
               type: ApplicationCommandOptionType.Number,
               required: true,
-              min_value: 2
+              min_value: 1
           },
           {
               name: "neighborhood-code",
@@ -230,7 +231,41 @@ module.exports = {
         name: "list",
         description: "lists all active shifts",
         type: ApplicationCommandOptionType.Subcommand
-      }
+      },
+      {
+        name: "plan",
+        description: "Plan a shift",
+        type: 1, // Subcommand type
+        options: [
+          {
+            name: "job",
+            description: "pick where to host the shift",
+            type: ApplicationCommandOptionType.String,
+            required: true,
+            choices: jobOptions
+          },
+          {
+            name: "start-time",
+            description: "Input the hammertime code when the shift will start, choose the very last option",
+            type: ApplicationCommandOptionType.String,
+            required: true,
+          },
+          {
+            name: "reactions",
+            description: "how many reactions are needed to start?",
+            type: ApplicationCommandOptionType.Number,
+            required: true,
+            min_value: 1,
+            max_value: 5,
+          },
+          {
+            name: "image",
+            description: "Provide an image URL for the shift",
+            type: ApplicationCommandOptionType.String,
+            required: false, 
+          }
+        ],
+      },
     ],
   },
   
@@ -262,8 +297,6 @@ module.exports = {
    
     if (sub === "start") {
 
-     
-      
       const messageChannelID = interaction.channel.id;
        
        
@@ -356,8 +389,6 @@ module.exports = {
       const max = 999999; // Largest 6-digit number
       const shiftID = Math.floor(Math.random() * (max - min + 1)) + min;
 
-
-      const { EmbedBuilder } = require("discord.js");
       const exampleEmbed = new EmbedBuilder()
           .setTitle(`Shift announced by ${interaction.user.username}`)
           .setURL('https://www.roblox.com/games/185655149/Welcome-to-Bloxburg')
@@ -376,14 +407,31 @@ module.exports = {
           if(interaction.guild.iconURL()){
           exampleEmbed.setImage(`${interaction.guild.iconURL()}`)
           }
-        
 
           const serverCooldownDuration = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
           const regularUserCooldownDuration = 6 * 60 * 60 * 1000; // 6 hours in milliseconds
           const boosterUserCooldownDuration = 3 * 60 * 60 * 1000; // 3 hours in milliseconds
           
       
-          const currentTimestamp = Date.now();
+          const upcomingEvents = client.eventdatabase.get("upcomingEvents") || [];
+          const twoHoursInMilliseconds = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+          const currentTimestamp = Date.now(); // Get the current timestamp
+
+          if (upcomingEvents.length > 0) {
+              // Get the start time and host of the closest upcoming event
+              const nextEvent = upcomingEvents[0]; // Assuming the events are sorted by start time
+              const nextEventStartTime = nextEvent.startTime || 0; // Get the closest event start time
+              const timeUntilEvent = nextEventStartTime - currentTimestamp;
+
+              const eventHost = nextEvent.hostId; // Get the host of the next event
+
+              // Check if the user is the host of the next event or if the event is within 2 hours
+              if (nextEventStartTime && timeUntilEvent <= twoHoursInMilliseconds && timeUntilEvent > 0 && interaction.user.id !== eventHost) {
+                  return interaction.followUp({
+                      content: "There is a shift or event happening soon. You may not host a shift now."
+                  });
+              }
+          }
           
           const isUserBooster = interaction.member.premiumSince !== null;
           const individualCooldownDuration = isUserBooster ? boosterUserCooldownDuration : regularUserCooldownDuration;
@@ -430,6 +478,8 @@ module.exports = {
                 content: `Wait a minute! Let someone else have a chance to host. You can host again <t:${userCooldownRemaining}:R> (<t:${userCooldownRemaining}:F>).`,
             });
         }
+        
+        
          
           const job1 = extractEmoji(niceJobName)
        
@@ -472,7 +522,7 @@ module.exports = {
                       if(i.user.id == client.user.id){
                         
                       }
-                      if (i.customId === 'join') {
+                        if (i.customId === 'join') {
                           if (users.includes(i.user.id)) {
                               i.reply({
                                   content: "You already have reacted!",
@@ -487,7 +537,7 @@ module.exports = {
                           }
                       } else if (i.customId === 'leave') {
                           if (users.includes(i.user.id)) {
-                              users.splice(users.indexOf(i.user.id), 1); // Remove the user from the array
+                              users.splice(users.indexOf(i.user.id), 1);
                               i.reply({
                                   content: "You have clocked out successfully.",
                                   ephemeral: true
@@ -498,8 +548,8 @@ module.exports = {
                                   ephemeral: true
                               });
                           }
-                      }
-                          	let ping = '';
+                      } 
+                            let ping = '';
                             if (users.length === 0) {
                                 ping = `No one has clocked in yet, be the first one to clock-in by pressing the big green button below, it's hard to miss.`;
                             } else {
@@ -515,7 +565,7 @@ module.exports = {
                           .setTitle(`Shift announced by ${interaction.user.username}`)
                           .setURL('https://www.roblox.com/games/185655149/Welcome-to-Bloxburg')
                           .setAuthor({ name: `Host: ${interaction.user.username}` })
-                          .setDescription(`New shift is starting <t:${dynamicTimestamp}:R>.\nPress the clock-in button to join!\nHost: <@${userID}>`)
+                          .setDescription(`New shift is starting <t:${dynamicTimestamp}:R>.\nPress the join button to join!\nHost: <@${userID}>`)
                           .setThumbnail(`${interaction.user.displayAvatarURL()}`)
                           .addFields(
                               { name: 'Job Location', value: `${niceJobName}` },
@@ -536,7 +586,7 @@ module.exports = {
                     
                       }
                      
-           
+                  
                   );
 
 
@@ -632,6 +682,7 @@ module.exports = {
             return
         }
         const channelID = interaction.client.shiftdatabase.get("channelID-");
+
         interaction.client.channels.fetch(channelID)
             .then(async (channel) => {
                 if (channel && channel.send) {
@@ -658,28 +709,108 @@ module.exports = {
                     const lastServerCommandTimestamp = interaction.client.shiftdatabase.get("lastServerCommand");
                     const serverCooldownEndTimestamp = lastServerCommandTimestamp ? lastServerCommandTimestamp + serverCooldownDuration : 0;
                     const howMuchLeftServerTimestamp = Math.floor(serverCooldownEndTimestamp / 1000);
-                    if (authorID == interaction.user.id || interaction.member.permissions.has("Administrator")) {
+
+                    if (!interaction.guild) {
+                      return message.reply("This command can only be used in a server.");
+                    }
+
+                    let upcomingShifts = interaction.client.eventdatabase.get("upcomingEvents") || [];
+
+                    // Fetch the first event details from the upcoming shifts array
+                    let eventDetails = upcomingShifts.length > 0 ? upcomingShifts[0] : null;
+                    let currentTime = Date.now();
+
+                    // Check if the event has started
+                    if (eventDetails && currentTime >= eventDetails.startTime) {
+                        // Check if the person ending the shift is the event host or an admin
+                        if (eventDetails.hostId === interaction.user.id || interaction.member.permissions.has("Administrator")) {
+                            message.reply({
+                                content: `This shift that was scheduled for <t:${timestamp}:f> has concluded.`
+                            });
+
+                            interaction.client.shiftdatabase.delete(`${shiftID}-shiftID`);
+
+                            // Check if there are any remaining events to delete from Discord's scheduled events
+                            if (eventDetails.eventId && interaction.guild && interaction.guild.scheduledEvents) {
+                                try {
+                                    await interaction.guild.scheduledEvents.delete(eventDetails.eventId);
+                                } catch (error) {
+                                    await message.reply({
+                                        content: 'There was an error deleting the scheduled event.'
+                                    });
+                                }
+                            }
+                          const channelID = client.shiftdatabase.get("planAhead-"); // Plan-ahead
+                          const channel = await interaction.guild.channels.cache.get(channelID);
+                      
+                            if (channel) {
+                              try {
+                                  // Fetch messages from the channel
+                                  const messages = await channel.messages.fetch({ limit: 10 });
+                                  const sortedMessages = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+                          
+                                  // Get the first event in the upcomingEvents array
+                                  const upcomingEvents = interaction.client.eventdatabase.get("upcomingEvents") || [];
+                                  const currentEvent = upcomingEvents[0];
+
+                          
+                                  // If the message is found, delete it
+                                  if (currentEvent) {
+                                    const messageToDelete = sortedMessages.find(msg => msg.content.includes(`-# Event ID: ${currentEvent.eventId}`));
+                                      if (messageToDelete) {
+                                        await messageToDelete.delete();
+                                        upcomingShifts.splice(0, 1);
+
+                                        // Store the updated array back in the database
+                                        await interaction.client.eventdatabase.set("upcomingEvents", upcomingShifts);
+                                    } else {
+                                        await interaction.followUp({
+                                            content: 'No message found related to this event.'
+                                        });
+                                    }
+                                  } else {
+                                      await message.reply({
+                                          content: 'Why no message?'
+                                      });
+                                  }
+                              } catch (error) {
+                                  await message.reply({
+                                      content: 'There was an error deleting the event message.'
+                                  });
+                              }
+                          } else {
+                              await interaction.followUp({
+                                  content: `You are not the host of this shift!`
+                              });
+                              return;
+                          }
+                        } else {
+                            await interaction.followUp({
+                                content: `You are not the host of this shift!`
+                            });
+                            return;
+                          }
+                    } else if (authorID === interaction.user.id || interaction.member.permissions.has("Administrator")) {
+                        // Proceed if the author or an admin is ending the shift
                         message.reply({
                             content: `This shift that was scheduled for <t:${timestamp}:f> has concluded.`
-                        })
-                        interaction.client.shiftdatabase.delete(`${shiftID}-shiftID`)
+                        });
+
+                        interaction.client.shiftdatabase.delete(`${shiftID}-shiftID`);
                     } else {
                         await interaction.followUp({
                             content: `You didn't host that shift!`
                         });
                         return;
                     }
-
                 }
-
             })
-
-        await interaction.followUp({
-            content: `Successfully ended the shift.`
-        });
-      
-            const targetData = await getUser(interaction.user);
-            targetData.reputation.received += 1;
+              await interaction.followUp({
+                  content: `Successfully ended the shift.`
+              });
+            
+                  const targetData = await getUser(interaction.user);
+                  targetData.reputation.received += 1;
 
  
   await targetData.save();
@@ -705,18 +836,6 @@ module.exports = {
       await thread.delete()
       client.threadsdatabase.delete(`shift-${shiftID}`)
     }
-
-  
-
-          
-  
-      
-   
-
-        
-          
-      
-       
   
     }
     else if (sub === "list") {
@@ -772,17 +891,350 @@ module.exports = {
             await interaction.followUp({
                 embeds: [exampleEmbed]
             });
+    } else if (sub === 'plan') {
+        const start = interaction.options.getString("start-time");
+        const job = interaction.options.getString("job");
+        const minimumWorkers = interaction.options.getNumber("reactions");
+        const image = interaction.options.getString("image");
+        
+        let niceJobName;
+        switch (job) {
+            case "benIceCream":
+                niceJobName = "🍦 Ben's Ice Cream";
+                break;
+            case "bffMarket":
+                niceJobName = "🛒 BFF Market";
+                break;
+            case "bloxBurger":
+                niceJobName = "🍔 Blox Burger";
+                break;
+            case "fishing":
+                niceJobName = "🎣 The Fishing Hut";
+                break;
+            case "mechanic":
+                niceJobName = "🔧 Mike's Motors";
+                break;
+            case "bloxburgMines":
+                niceJobName = "⛏️ Bloxburg Mines";
+                break;
+            case "pizzaBaking":
+                niceJobName = "🍕 Pizza Planet Kitchen";
+                break;
+            case "pizzaDelivery":
+                niceJobName = "🛵 Pizza Planet Delivery";
+                break;
+            case "stylezSalon":
+                niceJobName = "💈 Stylez Salon";
+                break;
+            case "janitor":
+                niceJobName = "🧹 Green Clean";
+                break;
+            case "woodCutter":
+                niceJobName = "🪓 Lovely Lumber";
+                break;
+            default:
+                niceJobName = "Unknown Job"; // Fallback
+        }
+    
+        // Calculate start time based on the selected duration
+        const unixTimestamp = parseInt(start);
+        const startTime = new Date(unixTimestamp * 1000); // Convert seconds to milliseconds
+        const fortyFive = new Date(startTime.getTime() - 45 * 60 * 1000);  // 45 minutes before the event
+
+        // Check if the timestamp is valid
+        if (isNaN(unixTimestamp) || unixTimestamp <= 0 || startTime.getTime() < Date.now()) {
+            return interaction.followUp("Please provide a valid future Unix timestamp in seconds.");
+        }
+
+        const upcomingShifts = client.eventdatabase.get("upcomingEvents") || [];
+        const twoHoursInMilliseconds = 2 * 60 * 60 * 1000; // 2 hours in milliseconds
+
+        // Get the start time of the new event
+        const newEventStart = startTime.getTime(); 
+
+        // Check if any event is within 2 hours before or after the new event
+        if (upcomingShifts.length > 0) {
+            const conflictEvent = upcomingShifts.find(event => {
+                const eventStartTime = new Date(event.startTime).getTime();
+                return Math.abs(newEventStart - eventStartTime) < twoHoursInMilliseconds;
+            });
+
+            // If a conflicting event is found, prevent scheduling
+            if (conflictEvent) {
+                return interaction.followUp({
+                    content: `Another event is happening within 2 hours of this event. Please plan your event or shift for another time.`
+                });
+            }
+        }
+    
+        try {
+          const voiceChannelId = "1267959183962279938"; // Your voice channel ID
+          const channelID = client.shiftdatabase.get("planAhead-"); //plan-ahead
+          
+          const eventDurationMinutes = 120; // Set the duration of the event to 120 minutes (2 hours)
+          const endTime = new Date(startTime.getTime() + eventDurationMinutes * 60000); // Calculate end time
+
+          const job1 = extractEmoji(niceJobName)
+       
+          const jobDetail = getJobDetails(job1)
+          
+          // Create the scheduled event
+          interaction.guild.scheduledEvents.create({
+            name: `${niceJobName} Shift`,
+            description: `Join us for a shift at ${niceJobName}!`,
+            scheduledStartTime: startTime.toISOString(),
+            scheduledEndTime: endTime.toISOString(),
+            image: image,
+            privacyLevel: 2, // GUILD_ONLY
+            entityType: 3, // Change to 3 for voice events
+            entityMetadata: {
+            channel_id: voiceChannelId,
+            location: "Bloxburg",
+            },
+          })
+          .then((event) => {
+
+            const eventDetails = {
+              startTime: startTime.getTime(), // Event start time in milliseconds
+              hostId: interaction.user.id,
+              eventId: event.id,
+            };
+
+            const upcomingShifts = client.eventdatabase.get("upcomingEvents") || [];
+
+            upcomingShifts.push(eventDetails);
+
+            // Sort the upcomingShifts array from earliest to latest
+            upcomingShifts.sort((a, b) => a.startTime - b.startTime);
+
+            // Store the sorted arrays back in the database
+            client.eventdatabase.set("upcomingEvents", upcomingShifts);
+            const announcementMessage = `
+            # <@ 1267959053108383765>
+            **Host: ** <@${interaction.user.id}>
+            **Workers Needed:** ${minimumWorkers}
+            Respond to the Event if you're coming, and stay tuned to <#1267959203486502963> for the session start!
+            https://discord.com/events/${interaction.guild.id}/${event.id}
+            
+            -# Event ID: ${event.id}
+            -# <:BEEwarn:1268469054931210291> Starting a shift within 2 hours of this scheduled shift will result in demotion!`;
+          
+            interaction.guild.channels.fetch(channelID)
+            .then((announcementChannel) => {
+            return announcementChannel.send(announcementMessage);
+            })
+            .then(async (announcementMessage) => {
+            await announcementMessage.react(jobDetail.Emoji);
+            interaction.followUp(`Successfully created the event: **${event.name}** starting at **<t:${start}:F>**!`);
+            })
+            .catch((error) => {
+            console.error("Error sending announcement:", error);
+            interaction.followUp("Error sending the announcement message.");
+            });
+          
+            // Start checking for event times
+            const checkEventTimers = () => {
+            let currentTimestamp = Date.now();
+            let timeUntilFortyFive = fortyFive.getTime() - currentTimestamp;
+          
+            if (timeUntilFortyFive <= 1000) {
+          
+              // Fetch the event channel
+              interaction.guild.channels.fetch(channelID)
+              .then((channel) => {
+              if (!channel) {
+              console.error("Channel not found or bot lacks permission to access the channel.");
+              return;
+              } 
+          
+            // Create a private thread
+            channel.threads.create({
+              name: `Shift Reminder for ${interaction.user.username}`,
+              autoArchiveDuration: 60, // Auto-archive after 1 hour
+              type: ChannelType.PrivateThread, // Create a private thread
+              invitable: true
+            })
+            .then((thread) => {
+            // Add the user who triggered the command to the thread
+              thread.members.add(interaction.user.id)
+            .then(() => {
+          
+            const confirmButton = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId('confirm_shift').setLabel('Confirm Shift').setStyle(ButtonStyle.Success),
+              new ButtonBuilder().setCustomId('cancel_shift').setLabel('Cancel Shift').setStyle(ButtonStyle.Danger)
+            );
+          
+          // Send the reminder message
+            const remind = new EmbedBuilder()
+              .setColor(color)
+              .setTitle("Event Reminder!")
+              .setDescription(`Hey, you have a ${niceJobName} shift starting <t:${unixTimestamp}:R>`)
+              .setFooter({
+              text: "Please press the button below to confirm the shift"
+            });
+          
+            thread.send({
+              content: `<@${interaction.user.id}>`, 
+              embeds: [remind],
+              components: [confirmButton],
+            })
+
+            const reminderInterval = setInterval(() => {
+                thread.send({
+                  content: `<@${interaction.user.id}>, you have yet to confirm or cancel the shift, please press a button to confirm or cancel it.`, 
+                });
+              }, 5 * 60 * 1000);
+          
+              const filter = (ButtonInteraction) => {
+                return ButtonInteraction.user.id === interaction.user.id; // Collect for both confirm and cancel buttons
+              };
       
-    }
-
-  },
-
-
-
-  };
-
-
-
-
-
-  
+              const collector = thread.createMessageComponentCollector({ filter, time: 45 * 60000 }); // 45 minutes collector
+        
+              collector.on('collect', async (buttonInteraction) => {
+                if (buttonInteraction.customId === 'confirm_shift') {
+                    await buttonInteraction.reply({ 
+                        content: 'Shift confirmed! Cooldown has been removed.\nYou can use the \`/Shift Start\` command now\nThis thread will automatically delete in 30 seconds', 
+                        ephemeral: true,
+                    });
+        
+                    clearInterval(reminderInterval);
+        
+                    setTimeout(async () => {
+                        await thread.delete("Shift confirmed, deleting thread."); // Optional reason for deletion
+                    }, 30000); // 30000 milliseconds = 30 seconds
+        
+                } else if (buttonInteraction.customId === 'cancel_shift') {
+                  await buttonInteraction.reply({
+                      content: 'You have cancelled the shift.',
+                      ephemeral: true,
+                  });
+              
+                  const channelID = client.shiftdatabase.get("planAhead-"); // Plan-ahead
+                  const channel = await interaction.guild.channels.cache.get(channelID);
+              
+                  if (channel) {
+                      try {
+                          // Fetch the latest 10 messages from the channel
+                          const messages = await channel.messages.fetch({ limit: 10 });
+                          const sortedMessages = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+              
+                          // Get the first event in the upcomingEvents array
+                          const upcomingEvents = interaction.client.eventdatabase.get("upcomingEvents") || [];
+                          const currentEvent = upcomingEvents[0];
+              
+                          if (currentEvent) {
+                              // Find the message related to the current event ID
+                              const messageToDelete = sortedMessages.find(msg => msg.content.includes(`Event ID: ${currentEvent.eventId}`));
+              
+                              // If the message is found, delete it
+                              if (messageToDelete) {
+                                  await messageToDelete.delete();
+                              } else {
+                                  await interaction.followUp({
+                                      content: 'No message found related to this event.'
+                                  });
+                              }
+                          } else {
+                              await interaction.followUp({
+                                  content: 'No upcoming event found.'
+                              });
+                          }
+                      } catch (error) {
+                          await interaction.followUp({
+                              content: 'There was an error deleting the event message.'
+                          });
+                      }
+                  }
+              
+                  // Fetch the upcomingEvents array
+                  let nextEventArray = interaction.client.eventdatabase.get("upcomingEvents");
+              
+                  // Remove the first event from the array and update the database
+                  if (nextEventArray && nextEventArray.length > 0) {
+                      const currentEvent = nextEventArray.shift(); // Removes and returns the first event
+              
+                      await interaction.client.eventdatabase.set("upcomingEvents", nextEventArray);
+              
+                      // If the event is a scheduled Discord event, delete it
+                      if (interaction.guild && interaction.guild.scheduledEvents) {
+                          try {
+                              await interaction.guild.scheduledEvents.delete(currentEvent.eventId);
+                          } catch (error) {
+                              await interaction.followUp({
+                                  content: 'There was an error deleting the scheduled event.'
+                              });
+                          }
+                      }
+                  }
+              
+                  // Optionally delete the thread or take any other necessary action
+                  setTimeout(async () => {
+                      await thread.delete("Shift cancelled, deleting thread."); // Optional reason for deletion
+                  }, 30000); // 30000 milliseconds = 30 seconds
+              
+                  collector.stop(); // Stop the collector
+                }
+                });
+                   })
+                  .catch((error) => console.error("Error adding user to thread:", error)); // Catch for adding user to thread
+                  })
+                  .catch((error) => console.error("Error creating thread:", error)); // Catch for thread creation
+                  })
+                  .catch((error) => console.error("Error fetching channel:", error)); // Catch for fetching channel
+          
+            clearInterval(interval);  // Stop the interval
+              return;
+            }
+          
+          // Dynamically adjust interval
+            let nextCheckTime = Math.min(startTime.getTime(), timeUntilFortyFive);
+            let intervalTime;
+          
+            if (nextCheckTime > 86400000) { // More than 24 hours remaining
+              intervalTime = 86400000; // Check every 24 hours
+          } else if (nextCheckTime > 43200000) { // More than 12 hours remaining
+              intervalTime = 43200000; // Check every 12 hours
+          } else if (nextCheckTime > 21600000) { // More than 6 hours remaining
+              intervalTime = 21600000; // Check every 6 hours
+          } else if (nextCheckTime > 10800000) { // More than 3 hours remaining
+              intervalTime = 10800000; // Check every 3 hours
+          } else if (nextCheckTime > 7200000) { // More than 2 hours remaining
+              intervalTime = 7200000; // Check every 2 hours
+          } else if (nextCheckTime > 3600000) { // More than 1 hour remaining
+              intervalTime = 3600000; // Check every 1 hour
+          } else if (nextCheckTime > 1800000) { // Between 1 hour and 30 minutes
+              intervalTime = 1800000; // Check every 30 minutes
+          } else if (nextCheckTime > 1200000) { // Between 30 and 20 minutes
+              intervalTime = 1200000; // Check every 20 minutes
+          } else if (nextCheckTime > 900000) { // Between 20 and 15 minutes
+              intervalTime = 900000; // Check every 15 minutes
+          } else if (nextCheckTime > 600000) { // Between 15 and 10 minutes
+              intervalTime = 600000; // Check every 10 minutes
+          } else if (nextCheckTime > 300000) { // Between 10 and 5 minutes
+              intervalTime = 300000; // Check every 5 minutes
+          } else if (nextCheckTime > 120000) { // Between 5 and 2 minutes
+              intervalTime = 120000; // Check every 2 minutes
+          } else { // Less than 2 minutes remaining
+              intervalTime = 60000; // Check every 1 minute
+          }
+          
+            // Reset the interval with the new time
+            clearInterval(interval);
+            interval = setInterval(checkEventTimers, intervalTime);
+          };
+          
+            // Start checking every minute initially
+            let interval = setInterval(checkEventTimers, 60000);
+            })
+            .catch((error) => {
+            console.error("Error creating event:", error);
+            interaction.followUp("There was an error creating the event. Please try again.");
+            });
+          } catch (error) {
+            console.log("Unexpected error:", error);
+            interaction.followUp("There was an unexpected error creating the event.");
+          }
+    }       
+  }
+}
